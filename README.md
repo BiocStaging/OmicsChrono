@@ -56,7 +56,3 @@ Please report issues in the GitHub issue tracker. OmicsChrono is distributed
 under the MIT license. The initial implementation was prepared with OpenAI
 Codex assistance; the maintainer is responsible for review, reliability, and
 ongoing maintenance.
-
-## Project
-
-Maintained as a scientific software project by Beta Calendars. Project source: <https://github.com/mateopedersen/OmicsChrono>.

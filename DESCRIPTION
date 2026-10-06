@@ -9,7 +9,7 @@ Depends: R (>= 4.6.0)
 Imports: clock, S4Vectors, SummarizedExperiment, methods, stats
 Suggests: BiocStyle, fission, knitr, rmarkdown, SingleCellExperiment, testthat (>= 3.0.0)
 VignetteBuilder: knitr
-biocViews: Software, TimeCourse
+biocViews: Software, TimeCourse, Preprocessing
 URL: https://github.com/mateopedersen/OmicsChrono
 BugReports: https://github.com/mateopedersen/OmicsChrono/issues
 Config/testthat/edition: 3
