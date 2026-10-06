@@ -1,0 +1,226 @@
+<!-- Provenance: Drafted with OpenAI Codex assistance; examples are executable -->
+<!-- and will be validated against the current Bioconductor devel environment. -->
+---
+title: "OmicsChrono: temporal metadata for longitudinal omics"
+author: "Mateo Pedersen"
+date: "`r Sys.Date()`"
+output: BiocStyle::html_document
+vignette: >
+  %\VignetteIndexEntry{OmicsChrono: temporal metadata for longitudinal omics}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+suppressPackageStartupMessages(library(OmicsChrono))
+```
+
+# Introduction
+
+Longitudinal and circadian studies often describe sample time using a mixture
+of elapsed durations, civil timestamps, subject-specific baselines, and light
+cycle coordinates. These quantities have different meanings. In particular,
+civil clock readings may be ambiguous or nonexistent around daylight-saving
+transitions, while replicate samples may not land exactly on planned sampling
+windows.
+
+OmicsChrono is an upstream metadata layer for making these temporal
+assumptions explicit in `SummarizedExperiment` and its derived classes. It
+stores sample annotations in `colData()` and does not read or alter assay
+values. The result is suitable for downstream modeling workflows that expect
+an explicit temporal design.
+
+## Relationship to existing Bioconductor software
+
+Several Bioconductor packages analyze temporal biological measurements:
+
+| Package | Main temporal task | OmicsChrono's boundary |
+|:--|:--|:--|
+| `rain` | Non-parametric detection of rhythmic patterns in time series | Validates sample-time metadata before measurements are modeled |
+| `DiscoRhythm` | Rhythm detection and exploratory/quality-control visualizations | Represents civil and experimental time and reports sampling coverage |
+| `timeOmics` | Integration and clustering of longitudinal multi-omics profiles | Standardizes sample-level time metadata without fitting profiles |
+| `Rnits`, `splineTimeR`, `TMixClust`, `timecourse` | Time-course rhythm, spline, clustering, or developmental-series analyses | Does not duplicate statistical models; supplies checked design inputs |
+
+These tools address downstream analysis of biological signal. OmicsChrono
+addresses the preceding data-engineering step: checking what each sample's time
+means and whether the observed design matches its stated schedule. Package
+scope is limited to metadata; it does not identify rhythmic genes or estimate
+molecular phase.
+
+# Real RNA-seq time-course data
+
+The `fission` experiment-data package supplies a `RangedSummarizedExperiment`
+of fission yeast RNA-seq samples collected at 0, 15, 30, 60, 120, and 180
+minutes after oxidative stress, in wild-type and `atf21`-deletion strains.
+These are elapsed experimental minutes rather than civil timestamps.
+
+```{r fission}
+data("fission", package = "fission")
+fission
+```
+
+Inspect sample-level metadata and the planned time points:
+
+```{r inspect-fission}
+cd <- SummarizedExperiment::colData(fission)
+names(cd)
+sort(unique(cd$minute))
+fission_subject <- paste(cd$strain, cd$replicate, sep = "_")
+## Rebuild the packaged snapshot with the current assay wrapper while retaining
+## its real counts, genomic ranges, and sample annotations.
+fission_current <- SummarizedExperiment::SummarizedExperiment(
+    assays = list(counts = SummarizedExperiment::assay(fission)),
+    rowRanges = SummarizedExperiment::rowRanges(fission),
+    colData = S4Vectors::DataFrame(as.data.frame(cd))
+)
+```
+
+Validate the minute column and annotate hours from the first sample. The
+sample order is preserved; if the order is not chronological, the validation
+report records that fact rather than reordering samples.
+
+```{r annotate-fission}
+validation <- validateSampleTime(
+    fission_current, time = "minute", subject = fission_subject, time_unit = "minutes"
+)
+validation
+
+fission_timed <- annotateSampleTime(
+    fission_current, time = "minute", subject = fission_subject, time_unit = "minutes"
+)
+head(SummarizedExperiment::colData(fission_timed)[,
+    c("minute", "chrono_elapsed_hours", "chrono_sampling_interval_hours")])
+```
+
+Summarize the available time points by strain and check one-to-one alignment
+for a single strain. Replicate measurements remain separate observations and
+are never combined or modified by alignment.
+
+```{r coverage-fission}
+temporalCoverage(
+    fission_timed,
+    time = "chrono_elapsed_hours",
+    subject = fission_subject,
+    condition = "strain"
+)
+
+wt <- cd$strain == "wt" & cd$replicate == "r1"
+alignSampleTimes(
+    observed = as.numeric(as.character(cd$minute[wt])),
+    expected = c(0, 15, 30, 60, 120, 180),
+    tolerance = 0.01,
+    sample = colnames(fission)[wt]
+)
+```
+
+The container's structure and assay values are preserved:
+
+```{r preservation-fission}
+class(fission)
+class(fission_timed)
+    identical(dim(fission_current), dim(fission_timed))
+identical(colnames(fission_current), colnames(fission_timed))
+identical(SummarizedExperiment::assay(fission_current),
+          SummarizedExperiment::assay(fission_timed))
+identical(SummarizedExperiment::rowData(fission_current),
+          SummarizedExperiment::rowData(fission_timed))
+```
+
+# Civil timestamps and daylight saving
+
+The following tiny example is synthetic and is used only to illustrate civil
+time behavior. A timestamp string such as `2024-10-27 02:30:00` in
+`Europe/Oslo` occurs twice when clocks move back. The default diagnostic does
+not silently choose one instant. The analyst can explicitly select the first
+or second occurrence after reviewing the experiment's collection records.
+
+```{r synthetic-dst}
+synthetic <- SummarizedExperiment::SummarizedExperiment(
+    assays = list(counts = matrix(c(3L, 7L), nrow = 1,
+                                  dimnames = list("gene1", c("sample1", "sample2")))),
+    colData = S4Vectors::DataFrame(
+        collection_time = c("2024-10-27 02:30:00", "2024-10-27 03:30:00"),
+        timezone = c("Europe/Oslo", "Europe/Oslo")
+    )
+)
+validateSampleTime(
+    synthetic, "collection_time", timezone = synthetic$timezone
+)
+resolved <- annotateSampleTime(
+    synthetic, "collection_time", timezone = synthetic$timezone,
+    ambiguous = "earliest"
+)
+SummarizedExperiment::colData(resolved)[,
+    c("chrono_timestamp_utc", "chrono_timestamp_local", "chrono_is_dst")]
+```
+
+For a spring-forward gap, the local time does not exist. It is reported as
+`nonexistent_local_time` and cannot be converted:
+
+```{r spring-gap}
+spring_gap <- SummarizedExperiment::SummarizedExperiment(
+    assays = list(counts = matrix(1L, nrow = 1)),
+    colData = S4Vectors::DataFrame(collection_time = "2024-03-31 02:30:00")
+)
+validateSampleTime(spring_gap, "collection_time", timezone = "Europe/Oslo")
+```
+
+# Zeitgeber time and photoperiod
+
+In a controlled light schedule, ZT0 is the supplied lights-on time. This is
+metadata transformation based on the experimental protocol; OmicsChrono does
+not infer circadian phase from gene expression.
+
+```{r zeitgeber}
+light_study <- SummarizedExperiment::SummarizedExperiment(
+    assays = list(counts = matrix(1:3, nrow = 1)),
+    colData = S4Vectors::DataFrame(
+        collection_time = c("2024-06-01 07:00:00",
+                            "2024-06-01 18:00:00",
+                            "2024-06-01 20:00:00")
+    )
+)
+light_study <- addZeitgeberTime(
+    light_study, "collection_time", lights_on = "07:00",
+    timezone = "Europe/Oslo", photoperiod = 12
+)
+SummarizedExperiment::colData(light_study)[,
+    c("chrono_zeitgeber_hours", "chrono_light_phase",
+      "chrono_hours_until_phase_change")]
+```
+
+# Analysis-ready design data
+
+When cyclical covariates are useful to a downstream method, the cycle length
+must be supplied explicitly. The helper returns sample-level covariates in
+input order and does not fit a statistical model.
+
+```{r design-data}
+design <- temporalDesignData(
+    fission_timed, time = "chrono_elapsed_hours", condition = "strain",
+    cycle_length = 24
+)
+head(design)
+```
+
+# Limitations
+
+* Civil timestamp parsing accepts local ISO timestamps to whole seconds and
+  requires an IANA time zone. Numeric offsets embedded in strings are not
+  interpreted; convert them to an absolute `POSIXct` instant first.
+* A daylight-saving repeated time is ambiguous without an offset, fold marker,
+  or collection record. OmicsChrono reports the ambiguity and never assumes
+  which occurrence was intended.
+* Time-zone rules describe civil time; they do not model experimental clock
+  drift or deviations in an animal facility's light controller.
+* Zeitgeber annotation uses a supplied local lights-on time and a 24-hour
+  cycle. It does not discover phase, periodicity, or rhythmicity.
+* Alignment reports metadata correspondence only. It does not impute missing
+  assay measurements or change sample order.
+
+# Session information
+
+```{r session-info}
+sessionInfo()
+```

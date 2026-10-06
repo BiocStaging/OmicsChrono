@@ -1,0 +1,16 @@
+Package: OmicsChrono
+Title: Calendar-Aware Temporal Metadata for Longitudinal Omics
+Version: 0.99.0
+Authors@R: person(given = "Mateo", family = "Pedersen", email = "betacalendars@gmail.com", role = c("aut", "cre"))
+Description: Longitudinal and circadian omics experiments encode sample time as elapsed experiment time, civil timestamps, or light-cycle coordinates. OmicsChrono validates and standardizes temporal sample metadata in SummarizedExperiment and derived Bioconductor containers while preserving assays and feature metadata. It supports elapsed-time annotation, sampling-window alignment, time-zone and daylight-saving diagnostics, Zeitgeber-time annotation, and temporal coverage summaries as reproducible preprocessing for downstream time-course analyses.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.6.0)
+Imports: clock, S4Vectors, SummarizedExperiment, methods, stats
+Suggests: BiocStyle, fission, knitr, rmarkdown, SingleCellExperiment, testthat (>= 3.0.0)
+VignetteBuilder: knitr
+biocViews: Software, TimeCourse
+URL: https://github.com/mateopedersen/OmicsChrono
+BugReports: https://github.com/mateopedersen/OmicsChrono/issues
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0

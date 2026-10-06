@@ -1,0 +1,11 @@
+.Rhistory
+.RData
+.Rproj.user
+*.Rproj
+*.rproj
+*.Renviron
+*.Rprofile
+*.tar.gz
+*.Rcheck
+Rplots.pdf
+.DS_Store
